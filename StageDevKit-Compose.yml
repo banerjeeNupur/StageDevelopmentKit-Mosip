@@ -1,0 +1,93 @@
+--- 
+networks: 
+  mosip: 
+    ipam: 
+      config: 
+        - 
+          subnet: 172.28.0.0/16
+      driver: default
+services: 
+  db_setup: 
+    build: 
+      context: "."
+      dockerfile: Postgres.dockerfile
+    container_name: mosip_db_setup
+    depends_on: 
+      - postgres
+    entrypoint: 
+      - bash
+      - "-c"
+      - "sleep 100 && chmod +x mosip_master/mosip_master_db_deploy.sh && ./mosip_master/mosip_master_db_deploy.sh mosip_master/mosip_master_deploy.properties"
+    image: db_setup
+    links: 
+      - "postgres:postgres"
+    networks: 
+      - mosip
+    privileged: true
+    restart: "no"
+    tty: true
+    volumes: 
+      - "/var/run/docker.sock:/var/run/docker.sock"
+  mosip_audit_service: 
+    build: 
+      context: "."
+      dockerfile: AuditManager.dockerfile
+    container_name: mosip_audit_service
+    depends_on: 
+      - mosip_auth_service
+    environment: 
+      - "AUTH_SERVICE=http://mosip_auth_service:8091"
+      - "CONFIG_SERVICE=mosip_config_service:51000"
+    ports: 
+      - "8081:8081"
+    volumes: 
+      - "shared-workspace:/opt/workspace"
+  mosip_auth_service: 
+    build: 
+      context: "."
+      dockerfile: Auth.dockerfile
+    container_name: mosip_auth_service
+    image: "kernel/auth:v1"
+    ports: 
+      - "8091:8091"
+    volumes: 
+      - "shared-workspace:/opt/workspace"
+  mosip_config_service: 
+    build: 
+      context: "."
+      dockerfile: Config.dockerfile
+    container_name: mosip_config_service
+    depends_on: 
+      - mosip_auth_service
+    environment: 
+      - "AUTH_SERVICE=http://mosip_auth_service:8091"
+    ports: 
+      - "51000:51000"
+    volumes: 
+      - "shared-workspace:/opt/workspace"
+      - "mosip_config:/config"
+  postgres: 
+    container_name: postgres
+    environment: 
+      - POSTGRES_PASSWORD=root
+      - PGDATA=/data/pgdata
+      - POSTGRES_DB=kernel
+      - POSTGRES_USER=postgres
+    image: debezium/postgres
+    networks: 
+      - mosip
+    ports: 
+      - "5432:5432"
+    privileged: true
+    tty: true
+    volumes: 
+      - "shared-workspace:/opt/workspace"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+version: "3.8"
+volumes: 
+  mosip_config: 
+    external: true
+    name: mosip_config
+  shared-workspace: 
+    driver: local
+    name: devkit-distributed-file-system
